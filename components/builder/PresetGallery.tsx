@@ -18,7 +18,7 @@ const PRESETS: Partial<Component>[] = [
       headers: [],
       bodyType: 'none',
     },
-    inputFields: []
+    parameters: []
   },
   {
     name: 'OpenAI Chat',
@@ -36,9 +36,9 @@ const PRESETS: Partial<Component>[] = [
         messages: [{ role: "user", content: "{{prompt}}" }]
       }, null, 2)
     },
-    inputFields: [
-      { id: 'p1', key: 'api_key', label: 'OpenAI API Key', type: 'password', required: true, placeholder: 'sk-...' },
-      { id: 'p2', key: 'prompt', label: '提示词 (Prompt)', type: 'textarea', required: true, placeholder: 'Hello, AI!' }
+    parameters: [
+      { id: 'p1', key: 'api_key', label: 'OpenAI API Key', uiType: 'password', required: true, value: '', isVisible: true },
+      { id: 'p2', key: 'prompt', label: '提示词 (Prompt)', uiType: 'textarea', required: true, value: 'Hello, AI!', isVisible: true }
     ]
   },
   {
@@ -56,9 +56,9 @@ const PRESETS: Partial<Component>[] = [
         timestamp: "{{timestamp}}"
       }, null, 2)
     },
-    inputFields: [
-      { id: 'n1', key: 'webhook_id', label: 'Webhook UUID', type: 'string', required: true },
-      { id: 'n2', key: 'payload', label: '数据载荷 (Payload)', type: 'textarea' }
+    parameters: [
+      { id: 'n1', key: 'webhook_id', label: 'Webhook UUID', uiType: 'input', required: true, value: '', isVisible: true },
+      { id: 'n2', key: 'payload', label: '数据载荷 (Payload)', uiType: 'textarea', value: '', isVisible: true }
     ]
   },
   {
@@ -77,9 +77,9 @@ const PRESETS: Partial<Component>[] = [
         params: {}
       }, null, 2)
     },
-    inputFields: [
-      { id: 'r1', key: 'token', label: 'RunningHub Token', type: 'password' },
-      { id: 'r2', key: 'task_name', label: '任务名称', type: 'string' }
+    parameters: [
+      { id: 'r1', key: 'token', label: 'RunningHub Token', uiType: 'password', value: '', isVisible: true },
+      { id: 'r2', key: 'task_name', label: '任务名称', uiType: 'input', value: '', isVisible: true }
     ]
   }
 ];
@@ -91,7 +91,7 @@ export const PresetGallery: React.FC<PresetGalleryProps> = ({ onSelect, onCancel
       name: preset.name || 'New Component',
       description: preset.description || '',
       apiConfig: preset.apiConfig!,
-      inputFields: preset.inputFields?.map(f => ({ ...f, id: crypto.randomUUID() })) || []
+      parameters: preset.parameters?.map(f => ({ ...f, id: crypto.randomUUID() })) || []
     };
     onSelect(component);
   };

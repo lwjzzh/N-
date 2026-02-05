@@ -1,18 +1,21 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, Play, Box, Layout, RefreshCw, AlertCircle, Layers, Settings, Code } from 'lucide-react';
+
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { ArrowLeft, Play, Box, Layout, RefreshCw, AlertCircle, Layers, Settings, Code, MonitorPlay, MessageSquare, AlertTriangle } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import { App, Component } from '../types/schema';
-import { Button, Input, Textarea, Card } from '../components/ui/Common';
+import { Button, Input, Textarea, Card, Select, Modal } from '../components/ui/Common';
 import { ApiConfigPanel } from '../components/builder/ApiConfigPanel';
 import { UiMapper } from '../components/builder/UiMapper';
 import { AppAssembler } from '../components/builder/AppAssembler';
 import { PresetGallery } from '../components/builder/PresetGallery';
+import { useToast } from '../components/ui/Toast';
 
 const BuilderPage: React.FC = () => {
   const { id: appId } = useParams();
   const navigate = useNavigate();
   const { getAppById, updateApp, addComponent, updateComponent, deleteComponent } = useAppStore();
+  const { addToast } = useToast();
   
   // --- Global State ---
   const [app, setApp] = useState<App | undefined>(undefined);
@@ -22,13 +25,23 @@ const BuilderPage: React.FC = () => {
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'inputs' | 'api'>('api');
   const [showPresetGallery, setShowPresetGallery] = useState(false);
+  const [deleteComponentId, setDeleteComponentId] = useState<string | null>(null);
+
+  // --- Debounce Refs ---
+  // Stores pending updates to prevent overwriting when typing fast in multiple fields
+  const appUpdatesRef = useRef<Partial<App>>({});
+  // Fix: Use ReturnType<typeof setTimeout> for browser compatibility (returns number)
+  const appUpdateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const compUpdatesRef = useRef<Record<string, Partial<Component>>>({});
+  // Fix: Use ReturnType<typeof setTimeout>
+  const compUpdateTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // --- Derived State ---
   const activeComponent = useMemo(() => 
     app?.components.find(c => c.id === selectedComponentId), 
   [app, selectedComponentId]);
 
-  // Calculate previous components for linking logic
   const previousComponents = useMemo(() => {
     if (!app || !activeComponent) return [];
     const index = app.components.findIndex(c => c.id === activeComponent.id);
@@ -39,7 +52,8 @@ const BuilderPage: React.FC = () => {
       if (!activeComponent) return [];
       const { apiConfig } = activeComponent;
       const text = `${apiConfig.url} ${JSON.stringify(apiConfig.headers)} ${apiConfig.bodyTemplate || ''}`;
-      const regex = /{{\s*([a-zA-Z0-9_]+)\s*}}/g;
+      // Updated Regex to include $ for system variables
+      const regex = /{{\s*([a-zA-Z0-9_$]+)\s*}}/g;
       const matches = new Set<string>();
       let match;
       while ((match = regex.exec(text)) !== null) {
@@ -61,35 +75,42 @@ const BuilderPage: React.FC = () => {
     }
   }, [appId, getAppById]); 
 
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+      return () => {
+          if (appUpdateTimeoutRef.current) clearTimeout(appUpdateTimeoutRef.current);
+          Object.values(compUpdateTimeoutsRef.current).forEach(t => clearTimeout(t));
+      };
+  }, []);
+
   // --- Handlers ---
+
+  // 1. Debounced App Update (Name, Description, RunMode)
   const handleAppUpdate = (field: keyof App, value: any) => {
       if (!app) return;
-      updateApp(app.id, { [field]: value });
+      
+      // Update UI Immediately
       setApp(prev => prev ? ({ ...prev, [field]: value }) : undefined);
+
+      // Accumulate changes
+      appUpdatesRef.current = { ...appUpdatesRef.current, [field]: value };
+
+      // Debounce Save
+      if (appUpdateTimeoutRef.current) clearTimeout(appUpdateTimeoutRef.current);
+      
+      appUpdateTimeoutRef.current = setTimeout(() => {
+          if (Object.keys(appUpdatesRef.current).length > 0) {
+              updateApp(app.id, appUpdatesRef.current);
+              appUpdatesRef.current = {}; // Reset pending
+          }
+      }, 800); // 800ms delay
   };
 
-  const handleAddComponent = (component: Component) => {
-      if (!app) return;
-      addComponent(app.id, component);
-      setApp(prev => prev ? ({ ...prev, components: [...prev.components, component] }) : undefined);
-      setShowPresetGallery(false);
-      // Automatically select the new component
-      setSelectedComponentId(component.id);
-      setActiveTab('api');
-  };
-
-  const handleDeleteComponent = (id: string) => {
-      if (!app) return;
-      if(window.confirm("确定要删除这个步骤吗？\nAre you sure you want to delete this step?")) {
-        deleteComponent(app.id, id);
-        setApp(prev => prev ? ({ ...prev, components: prev.components.filter(c => c.id !== id) }) : undefined);
-        if (selectedComponentId === id) setSelectedComponentId(null);
-      }
-  };
-
+  // 2. Debounced Component Update
   const handleUpdateComponent = (id: string, updates: Partial<Component>) => {
       if (!app) return;
-      updateComponent(app.id, id, updates);
+
+      // Update UI Immediately
       setApp(prev => {
           if (!prev) return undefined;
           return {
@@ -97,9 +118,62 @@ const BuilderPage: React.FC = () => {
               components: prev.components.map(c => c.id === id ? { ...c, ...updates } : c)
           };
       });
+
+      // Accumulate changes per component ID
+      compUpdatesRef.current[id] = { ...(compUpdatesRef.current[id] || {}), ...updates };
+
+      // Debounce Save per component
+      if (compUpdateTimeoutsRef.current[id]) clearTimeout(compUpdateTimeoutsRef.current[id]);
+
+      compUpdateTimeoutsRef.current[id] = setTimeout(() => {
+          if (compUpdatesRef.current[id]) {
+              updateComponent(app.id, id, compUpdatesRef.current[id]);
+              delete compUpdatesRef.current[id];
+          }
+          delete compUpdateTimeoutsRef.current[id];
+      }, 1000); // 1s delay for complex component updates
   };
 
-  // --- Render Loading / Error ---
+  const handleAddComponent = (component: Component) => {
+      if (!app) return;
+      addComponent(app.id, component);
+      setApp(prev => prev ? ({ ...prev, components: [...prev.components, component] }) : undefined);
+      setShowPresetGallery(false);
+      setSelectedComponentId(component.id);
+      setActiveTab('api');
+      addToast('组件已添加', 'success');
+  };
+
+  const confirmDeleteComponent = () => {
+      if (!app || !deleteComponentId) return;
+      deleteComponent(app.id, deleteComponentId);
+      setApp(prev => prev ? ({ ...prev, components: prev.components.filter(c => c.id !== deleteComponentId) }) : undefined);
+      if (selectedComponentId === deleteComponentId) setSelectedComponentId(null);
+      setDeleteComponentId(null);
+      addToast('组件已删除', 'success');
+  };
+
+  const handleMoveComponent = (id: string, direction: 'up' | 'down') => {
+      if (!app) return;
+      const index = app.components.findIndex(c => c.id === id);
+      if (index === -1) return;
+      
+      const newComponents = [...app.components];
+      if (direction === 'up' && index > 0) {
+          [newComponents[index - 1], newComponents[index]] = [newComponents[index], newComponents[index - 1]];
+      } else if (direction === 'down' && index < newComponents.length - 1) {
+          [newComponents[index], newComponents[index + 1]] = [newComponents[index + 1], newComponents[index]];
+      } else {
+          return;
+      }
+      
+      // Update local state immediately
+      setApp({ ...app, components: newComponents });
+      
+      // Force immediate save for structural changes
+      updateApp(app.id, { components: newComponents });
+  };
+
   if (isNotFound) {
       return (
           <div className="h-full flex flex-col items-center justify-center bg-background text-zinc-400 gap-4">
@@ -128,26 +202,54 @@ const BuilderPage: React.FC = () => {
           <Button variant="ghost" onClick={() => navigate('/')}>
             <ArrowLeft className="w-5 h-5 text-muted" />
           </Button>
-          <div>
-            <div className="flex items-center gap-2">
-                <h2 className="font-bold text-lg">{app.name}</h2>
+          <div className="flex flex-col">
+             <div className="flex items-center gap-2">
+                <h2 className="font-bold text-lg leading-tight">{app.name}</h2>
                 <button 
-                    onClick={() => setSelectedComponentId(null)} // Go to settings/assembly view
+                    onClick={() => setSelectedComponentId(null)} 
                     className="text-xs text-muted hover:text-primary underline decoration-dotted"
                 >
-                    (编辑信息)
+                    (设置)
                 </button>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted">
-              <span className={`px-1.5 rounded ${!selectedComponentId ? 'bg-zinc-700 text-white' : ''}`}>应用编排</span>
-              <span>/</span>
-              <span className={`px-1.5 rounded ${selectedComponentId ? 'bg-zinc-700 text-white' : ''}`}>
-                 {activeComponent ? activeComponent.name : '选择组件'}
-              </span>
-            </div>
+            {selectedComponentId ? (
+                <div className="flex items-center gap-1 text-xs text-zinc-500">
+                     <span>编辑组件:</span>
+                     <span className="text-zinc-300 font-medium">{activeComponent?.name}</span>
+                </div>
+            ) : (
+                <div className="flex items-center gap-1 text-xs text-zinc-500">
+                    <Layout className="w-3 h-3" />
+                    <span>全局设置</span>
+                </div>
+            )}
           </div>
         </div>
-        <div className="flex gap-2">
+
+        {/* Top Bar Actions */}
+        <div className="flex items-center gap-4">
+             {/* Run Mode Toggle */}
+             <div className="flex items-center bg-zinc-900 rounded-lg p-1 border border-zinc-800">
+                <button
+                    onClick={() => handleAppUpdate('runMode', 'panel')}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${app.runMode === 'panel' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    title="传统面板模式"
+                >
+                    <MonitorPlay className="w-3.5 h-3.5" />
+                    Panel
+                </button>
+                <button
+                    onClick={() => handleAppUpdate('runMode', 'chat')}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${app.runMode === 'chat' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    title="对话流模式"
+                >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    Chat
+                </button>
+             </div>
+
+             <div className="h-6 w-px bg-zinc-800"></div>
+
              <Button variant="secondary" icon={Play} onClick={() => navigate(`/run/${app.id}`)}>
                 运行应用
              </Button>
@@ -240,7 +342,8 @@ const BuilderPage: React.FC = () => {
                         components={app.components}
                         onAddComponent={() => setShowPresetGallery(true)}
                         onEditComponent={(id) => setSelectedComponentId(id)}
-                        onDeleteComponent={handleDeleteComponent}
+                        onDeleteComponent={(id) => setDeleteComponentId(id)}
+                        onMoveComponent={handleMoveComponent}
                     />
                 </div>
             )}
@@ -260,7 +363,7 @@ const BuilderPage: React.FC = () => {
                             onClick={() => setActiveTab('inputs')}
                             className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'inputs' ? 'border-primary text-white' : 'border-transparent text-muted hover:text-zinc-300'}`}
                         >
-                            <Layers className="w-4 h-4" /> 2. 界面 & 参数映射
+                            <Layers className="w-4 h-4" /> 2. 参数 & UI 映射
                         </button>
                         <button 
                             onClick={() => setActiveTab('general')}
@@ -286,7 +389,7 @@ const BuilderPage: React.FC = () => {
                                 <UiMapper 
                                     component={activeComponent}
                                     detectedVariables={detectedVariables}
-                                    onUpdate={(fields) => handleUpdateComponent(activeComponent.id, { inputFields: fields })}
+                                    onUpdate={(params) => handleUpdateComponent(activeComponent.id, { parameters: params })}
                                     previousComponents={previousComponents}
                                 />
                             )}
@@ -307,7 +410,7 @@ const BuilderPage: React.FC = () => {
                                         />
                                         <div className="p-4 rounded-lg bg-red-900/10 border border-red-900/30 flex items-center justify-between">
                                             <span className="text-sm text-red-300">危险操作</span>
-                                            <Button variant="danger" size="sm" onClick={() => handleDeleteComponent(activeComponent.id)}>
+                                            <Button variant="danger" size="sm" onClick={() => setDeleteComponentId(activeComponent.id)}>
                                                 删除组件
                                             </Button>
                                         </div>
@@ -320,6 +423,27 @@ const BuilderPage: React.FC = () => {
             )}
         </div>
       </div>
+
+      {/* Delete Component Modal */}
+      <Modal 
+          isOpen={!!deleteComponentId} 
+          onClose={() => setDeleteComponentId(null)} 
+          title="删除步骤" 
+          width="sm"
+          footer={
+             <>
+                 <Button variant="ghost" onClick={() => setDeleteComponentId(null)}>取消</Button>
+                 <Button variant="danger" onClick={confirmDeleteComponent}>确认删除</Button>
+             </>
+          }
+      >
+          <div className="flex items-start gap-4 text-red-400">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <p className="text-sm text-zinc-300 mt-1">
+                  确定要删除此步骤吗？此操作将移除该组件及其所有配置，可能会影响后续依赖此步骤的流程。
+              </p>
+          </div>
+      </Modal>
     </div>
   );
 };

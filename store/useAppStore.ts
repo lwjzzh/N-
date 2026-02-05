@@ -1,3 +1,4 @@
+
 import { create } from 'zustand';
 import { App, Component } from '../types/schema';
 import * as storage from '../services/storage';
@@ -11,6 +12,7 @@ interface AppStoreState {
   addApp: (app: App) => Promise<void>;
   updateApp: (id: string, updates: Partial<App>) => Promise<void>;
   deleteApp: (id: string) => Promise<void>;
+  togglePinApp: (id: string) => Promise<void>;
   
   // Component Actions
   addComponent: (appId: string, component: Component) => Promise<void>;
@@ -47,6 +49,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     
     set(state => ({
       apps: state.apps.map(a => a.id === id ? updatedApp : a)
+    }));
+  },
+
+  togglePinApp: async (id) => {
+    const app = get().apps.find(a => a.id === id);
+    if (!app) return;
+
+    const updatedApp = { ...app, isPinned: !app.isPinned };
+    await storage.saveApp(updatedApp);
+
+    set(state => ({
+        apps: state.apps.map(a => a.id === id ? updatedApp : a)
     }));
   },
 

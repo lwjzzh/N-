@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Settings, Zap, LucideIcon } from 'lucide-react';
+import { LayoutDashboard, Settings, Zap, LucideIcon, PenTool, Grid } from 'lucide-react';
 
 const SidebarItem: React.FC<{ to: string; icon: LucideIcon; label: string }> = ({ to, icon: Icon, label }) => {
   return (
@@ -33,14 +34,17 @@ const Layout: React.FC = () => {
         </div>
 
         <div className="flex-1 px-4 py-2 space-y-1">
-          <SidebarItem to="/" icon={LayoutDashboard} label="仪表盘 (Dashboard)" />
-          {/* Settings is a placeholder for now */}
-          <SidebarItem to="/settings" icon={Settings} label="设置 (Settings)" />
+          <SidebarItem to="/" icon={Grid} label="应用库 (App Library)" />
+          <SidebarItem to="/apps" icon={PenTool} label="配置应用 (Config Apps)" />
+        </div>
+
+        <div className="px-4 py-2 space-y-1">
+            <SidebarItem to="/settings" icon={Settings} label="设置 (Settings)" />
         </div>
 
         <div className="p-4 border-t border-border">
             <div className="text-xs text-zinc-500 px-2">
-                v0.1.0 Beta
+                v0.2.1 Beta
             </div>
         </div>
       </aside>

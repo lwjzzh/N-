@@ -1,24 +1,26 @@
+
 import React from 'react';
-import { Plus, ArrowDown, Box, Settings2, Trash2, GripVertical } from 'lucide-react';
+import { Plus, ArrowDown, Box, Settings2, Trash2, ArrowUp, ArrowDown as ArrowDownIcon } from 'lucide-react';
 import { Component } from '../../types/schema';
-import { Button, Card, Badge } from '../ui/Common';
+import { Button, Badge } from '../ui/Common';
 
 interface AppAssemblerProps {
   components: Component[];
   onAddComponent: () => void;
   onEditComponent: (id: string) => void;
   onDeleteComponent: (id: string) => void;
-  onReorder?: (fromIndex: number, toIndex: number) => void; // Placeholder for future D&D
+  onMoveComponent: (id: string, direction: 'up' | 'down') => void;
 }
 
 export const AppAssembler: React.FC<AppAssemblerProps> = ({ 
   components, 
   onAddComponent, 
   onEditComponent, 
-  onDeleteComponent 
+  onDeleteComponent,
+  onMoveComponent
 }) => {
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4 space-y-8 animate-in fade-in duration-300">
+    <div className="max-w-3xl mx-auto py-8 px-4 space-y-8 animate-in fade-in duration-300 pb-32">
       
       <div className="text-center space-y-2">
         <h2 className="text-2xl font-bold text-white">应用流程编排 (Assembly)</h2>
@@ -35,9 +37,29 @@ export const AppAssembler: React.FC<AppAssemblerProps> = ({
           <div key={comp.id} className="relative z-10">
             <div className="flex items-center gap-4 group">
                {/* Step Number / Icon */}
-               <div className="w-16 h-16 flex flex-col items-center justify-center shrink-0 rounded-2xl bg-surface border border-zinc-800 shadow-sm z-10">
+               <div className="w-16 h-16 flex flex-col items-center justify-center shrink-0 rounded-2xl bg-surface border border-zinc-800 shadow-sm z-10 relative">
                    <span className="text-xs font-mono text-zinc-500 mb-1">STEP</span>
                    <span className="text-xl font-bold text-zinc-200">{index + 1}</span>
+                   
+                   {/* Ordering Controls (visible on hover) */}
+                   <div className="absolute -left-10 top-0 bottom-0 flex flex-col justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); onMoveComponent(comp.id, 'up'); }}
+                            disabled={index === 0}
+                            className="p-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Move Up"
+                        >
+                            <ArrowUp className="w-3 h-3" />
+                        </button>
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); onMoveComponent(comp.id, 'down'); }}
+                            disabled={index === components.length - 1}
+                            className="p-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Move Down"
+                        >
+                            <ArrowDownIcon className="w-3 h-3" />
+                        </button>
+                   </div>
                </div>
 
                {/* Card */}
@@ -84,11 +106,11 @@ export const AppAssembler: React.FC<AppAssemblerProps> = ({
                  {/* Input/Output Summary */}
                  <div className="mt-4 pt-4 border-t border-zinc-800/50 flex gap-6 text-xs">
                     <div className="flex-1">
-                        <span className="text-zinc-500 uppercase tracking-wider font-semibold">输入参数 (Inputs)</span>
+                        <span className="text-zinc-500 uppercase tracking-wider font-semibold">参数 (Params)</span>
                         <div className="mt-1 flex flex-wrap gap-1.5">
-                            {comp.inputFields.length > 0 ? (
-                                comp.inputFields.map(f => (
-                                    <span key={f.id} className="bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded border border-zinc-700">
+                            {comp.parameters.length > 0 ? (
+                                comp.parameters.map(f => (
+                                    <span key={f.id} className={`px-1.5 py-0.5 rounded border ${f.isVisible ? 'bg-zinc-800 text-zinc-300 border-zinc-700' : 'bg-zinc-900 text-zinc-600 border-zinc-800 border-dashed'}`}>
                                         {f.key}
                                     </span>
                                 ))
